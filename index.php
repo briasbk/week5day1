@@ -1,9 +1,9 @@
 <?php
 // Amazon RDS MySQL connection settings
-$host = 'your-rds-endpoint';
-$db   = 'your_database';
-$user = 'your_username';
-$pass = 'your_password';
+$host = 'mysql-single.c470eai86395.us-east-1.rds.amazonaws.com';
+$db   = 'devops_class_db';
+$user = 'admin';
+$pass = 'Camilamours_2026!';
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";
@@ -157,15 +157,42 @@ $users = $pdo->query('SELECT id, name, email FROM users ORDER BY id ASC')->fetch
             <td colspan="2">Total users: <?= count($users) ?></td>
             <td colspan="2">
                 <?php
-                // Retrieve instance metadata from EC2 Metadata Service
-                $instance_id = @file_get_contents('http://169.254.169.254/latest/meta-data/instance-id');
-                $public_ip = @file_get_contents('http://169.254.169.254/latest/meta-data/public-ipv4');
-                $availability_zone = @file_get_contents('http://169.254.169.254/latest/meta-data/placement/availability-zone');
-                
-                if ($instance_id && $public_ip && $availability_zone) {
-                    echo "Instance ID: " . htmlspecialchars($instance_id) . "<br>";
-                    echo "Public IP: " . htmlspecialchars($public_ip) . "<br>";
-                    echo "AZ: " . htmlspecialchars($availability_zone);
+                // IMDSv2: First get a session token, then use it to fetch metadata
+                function get_imds_token() {
+                    $ctx = stream_context_create([
+                        'http' => [
+                            'method' => 'PUT',
+                            'header' => "X-aws-ec2-metadata-token-ttl-seconds: 21600\r\n",
+                            'timeout' => 2,
+                        ]
+                    ]);
+                    return @file_get_contents('http://169.254.169.254/latest/api/token', false, $ctx);
+                }
+
+                function get_metadata($path, $token) {
+                    $ctx = stream_context_create([
+                        'http' => [
+                            'method' => 'GET',
+                            'header' => "X-aws-ec2-metadata-token: $token\r\n",
+                            'timeout' => 2,
+                        ]
+                    ]);
+                    return @file_get_contents('http://169.254.169.254/latest/meta-data/' . $path, false, $ctx);
+                }
+
+                $token = get_imds_token();
+                if ($token) {
+                    $instance_id       = get_metadata('instance-id', $token);
+                    $public_ip         = get_metadata('public-ipv4', $token);
+                    $availability_zone = get_metadata('placement/availability-zone', $token);
+
+                    if ($instance_id && $public_ip && $availability_zone) {
+                        echo "Instance ID: " . htmlspecialchars($instance_id) . "<br>";
+                        echo "Public IP: "   . htmlspecialchars($public_ip)   . "<br>";
+                        echo "AZ: "          . htmlspecialchars($availability_zone);
+                    } else {
+                        echo "Metadata not available (not running on EC2)";
+                    }
                 } else {
                     echo "Metadata not available (not running on EC2)";
                 }
